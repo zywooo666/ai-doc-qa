@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 文档问答助手</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #f5f7fa; color: #333; }
+        .container { max-width: 800px; margin: 40px auto; padding: 0 20px; }
+        h1 { text-align: center; color: #1a365d; margin-bottom: 30px; }
+        .card { background: white; border-radius: 12px; padding: 24px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+        .upload-area { border: 2px dashed #cbd5e0; border-radius: 8px; padding: 40px; text-align: center; cursor: pointer; transition: all 0.3s; }
+        .upload-area:hover { border-color: #3182ce; background: #ebf8ff; }
+        .upload-area input { display: none; }
+        .status { margin-top: 12px; font-size: 14px; color: #718096; }
+        .status.success { color: #38a169; }
+        .status.error { color: #e53e3e; }
+        .chat-box { margin-top: 20px; }
+        .message { margin-bottom: 16px; padding: 12px 16px; border-radius: 8px; line-height: 1.6; }
+        .message.user { background: #3182ce; color: white; margin-left: 20%; }
+        .message.bot { background: #edf2f7; margin-right: 10%; }
+        .input-area { display: flex; gap: 10px; margin-top: 20px; }
+        .input-area input { flex: 1; padding: 12px 16px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 14px; }
+        .input-area button { padding: 12px 24px; background: #3182ce; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; }
+        .input-area button:hover { background: #2b6cb0; }
+        .input-area button:disabled { background: #a0aec0; cursor: not-allowed; }
+        .sources { margin-top: 8px; font-size: 12px; color: #a0aec0; }
+        .sources summary { cursor: pointer; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📄 AI 文档问答助手</h1>
+        
+        <div class="card">
+            <label class="upload-area" id="uploadLabel">
+                <input type="file" id="fileInput" accept=".pdf,.docx,.md,.txt">
+                <div>点击或拖拽上传文档</div>
+                <div style="font-size:12px;color:#a0aec0;margin-top:8px;">支持 PDF / Word / Markdown / TXT</div>
+            </label>
+            <div class="status" id="uploadStatus"></div>
+        </div>
+        
+        <div class="card">
+            <div class="chat-box" id="chatBox">
+                <div class="message bot">你好！请先上传文档，然后就可以向我提问了。</div>
+            </div>
+            <div class="input-area">
+                <input type="text" id="questionInput" placeholder="输入你的问题..." disabled>
+                <button id="sendBtn" disabled>发送</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const fileInput = document.getElementById('fileInput');
+        const uploadStatus = document.getElementById('uploadStatus');
+        const questionInput = document.getElementById('questionInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const chatBox = document.getElementById('chatBox');
+
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            uploadStatus.textContent = '正在处理文档...';
+            uploadStatus.className = 'status';
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            try {
+                const res = await fetch('/upload', { method: 'POST', body: formData });
+                const data = await res.json();
+                if (res.ok) {
+                    uploadStatus.textContent = data.message;
+                    uploadStatus.className = 'status success';
+                    questionInput.disabled = false;
+                    sendBtn.disabled = false;
+                    questionInput.focus();
+                } else {
+                    uploadStatus.textContent = data.error || '上传失败';
+                    uploadStatus.className = 'status error';
+                }
+            } catch (err) {
+                uploadStatus.textContent = '上传失败：' + err.message;
+                uploadStatus.className = 'status error';
+            }
+        });
+
+        async function sendQuestion() {
+            const question = questionInput.value.trim();
+            if (!question) return;
+            
+            // 添加用户消息
+            const userMsg = document.createElement('div');
+            userMsg.className = 'message user';
+            userMsg.textContent = question;
+            chatBox.appendChild(userMsg);
+            
+            questionInput.value = '';
+            sendBtn.disabled = true;
+            
+            // 添加加载中消息
+            const loadingMsg = document.createElement('div');
+            loadingMsg.className = 'message bot';
+            loadingMsg.textContent = '正在思考...';
+            chatBox.appendChild(loadingMsg);
+            chatBox.scrollTop = chatBox.scrollHeight;
+            
+            try {
+                const res = await fetch('/ask', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ question })
+                });
+                const data = await res.json();
+                
+                loadingMsg.textContent = data.answer || data.error;
+                
+                if (data.sources && data.sources.length > 0) {
+                    const sourcesDiv = document.createElement('div');
+                    sourcesDiv.className = 'sources';
+                    sourcesDiv.innerHTML = `<details><summary>参考来源（${data.sources.length}段）</summary>${data.sources.map((s,i) => `<div style="margin-top:4px;">[${i+1}] ${s}</div>`).join('')}</details>`;
+                    loadingMsg.appendChild(sourcesDiv);
+                }
+            } catch (err) {
+                loadingMsg.textContent = '出错了：' + err.message;
+            }
+            
+            sendBtn.disabled = false;
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        sendBtn.addEventListener('click', sendQuestion);
+        questionInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendQuestion();
+        });
+    </script>
+</body>
+</html>
