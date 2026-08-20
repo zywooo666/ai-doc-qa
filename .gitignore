@@ -1,0 +1,13 @@
+# 运行时生成的文件
+uploads/
+chroma_db/
+__pycache__/
+*.pyc
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# IDE配置
+.idea/
+.vscode/
