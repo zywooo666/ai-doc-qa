@@ -1,13 +1,15 @@
-# 运行时生成的文件
+# Runtime data and secrets
 uploads/
 chroma_db/
+data/
+.env
+.venv/
 __pycache__/
+.pytest_cache/
 *.pyc
 
-# 系统文件
+# Operating systems and editors
 .DS_Store
 Thumbs.db
-
-# IDE配置
 .idea/
 .vscode/

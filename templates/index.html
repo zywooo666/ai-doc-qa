@@ -1,142 +1,38 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI 文档问答助手</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #f5f7fa; color: #333; }
-        .container { max-width: 800px; margin: 40px auto; padding: 0 20px; }
-        h1 { text-align: center; color: #1a365d; margin-bottom: 30px; }
-        .card { background: white; border-radius: 12px; padding: 24px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-        .upload-area { border: 2px dashed #cbd5e0; border-radius: 8px; padding: 40px; text-align: center; cursor: pointer; transition: all 0.3s; }
-        .upload-area:hover { border-color: #3182ce; background: #ebf8ff; }
-        .upload-area input { display: none; }
-        .status { margin-top: 12px; font-size: 14px; color: #718096; }
-        .status.success { color: #38a169; }
-        .status.error { color: #e53e3e; }
-        .chat-box { margin-top: 20px; }
-        .message { margin-bottom: 16px; padding: 12px 16px; border-radius: 8px; line-height: 1.6; }
-        .message.user { background: #3182ce; color: white; margin-left: 20%; }
-        .message.bot { background: #edf2f7; margin-right: 10%; }
-        .input-area { display: flex; gap: 10px; margin-top: 20px; }
-        .input-area input { flex: 1; padding: 12px 16px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 14px; }
-        .input-area button { padding: 12px 24px; background: #3182ce; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; }
-        .input-area button:hover { background: #2b6cb0; }
-        .input-area button:disabled { background: #a0aec0; cursor: not-allowed; }
-        .sources { margin-top: 8px; font-size: 12px; color: #a0aec0; }
-        .sources summary { cursor: pointer; }
-    </style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>DocMind 文档知识库</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;font-family:Inter,"Microsoft YaHei",sans-serif;background:#f4f6f8;color:#18212b}button,input{font:inherit}button{cursor:pointer}.app{height:100vh;display:grid;grid-template-columns:300px 1fr}.side{background:#18212b;color:#edf2f5;padding:22px 18px;display:flex;flex-direction:column;min-width:0}.brand{font-size:18px;font-weight:700;margin:0 0 24px}.brand span{color:#55c2a3}.upload{display:block;border:1px dashed #647481;padding:18px;text-align:center;border-radius:6px;color:#dbe3e8;background:#222e38}.upload:hover{border-color:#55c2a3}.upload input{display:none}.hint{font-size:12px;color:#91a0ab;margin-top:6px}.section-title{font-size:12px;text-transform:uppercase;color:#91a0ab;margin:24px 0 10px}.docs{overflow:auto}.doc{display:grid;grid-template-columns:1fr auto;gap:8px;padding:10px 4px;border-bottom:1px solid #2e3b46}.doc-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}.doc-meta{font-size:11px;color:#91a0ab;margin-top:4px}.delete{border:0;background:transparent;color:#91a0ab;padding:4px}.delete:hover{color:#ff7d75}.status{font-size:12px;min-height:18px;margin-top:10px;color:#55c2a3}.main{display:grid;grid-template-rows:64px 1fr auto;min-width:0}.topbar{background:#fff;border-bottom:1px solid #dde2e6;padding:0 28px;display:flex;align-items:center;justify-content:space-between}.topbar h1{font-size:16px;margin:0}.badge{font-size:12px;color:#49606e}.chat{overflow:auto;padding:28px max(24px,calc((100% - 900px)/2));display:flex;flex-direction:column;gap:18px}.empty{margin:auto;text-align:center;color:#657680}.empty strong{display:block;color:#273944;font-size:22px;margin-bottom:8px}.msg{max-width:82%;line-height:1.7;font-size:14px;white-space:pre-wrap}.msg.user{align-self:flex-end;background:#1f8068;color:#fff;padding:11px 15px;border-radius:6px}.msg.bot{align-self:flex-start}.sources{margin-top:12px;border-top:1px solid #dce2e5;padding-top:10px}.source{background:#fff;border:1px solid #dce2e5;padding:10px;margin-top:8px;border-radius:4px}.source-head{display:flex;justify-content:space-between;font-size:12px;font-weight:600}.excerpt{font-size:12px;color:#657680;margin-top:5px}.composer{background:#fff;border-top:1px solid #dde2e6;padding:18px max(24px,calc((100% - 900px)/2));display:flex;gap:10px}.composer input{flex:1;border:1px solid #bfc9cf;border-radius:5px;padding:12px}.composer input:focus{outline:2px solid #a9d9cc;border-color:#1f8068}.send{width:46px;border:0;border-radius:5px;background:#1f8068;color:#fff;font-size:19px}.send:disabled{background:#aeb9bd}.secondary{border:1px solid #cad2d6;background:#fff;border-radius:4px;padding:7px 10px;color:#49606e}@media(max-width:720px){.app{grid-template-columns:1fr;height:auto;min-height:100vh}.side{max-height:280px}.main{min-height:70vh}.msg{max-width:94%}}
+  </style>
 </head>
 <body>
-    <div class="container">
-        <h1>📄 AI 文档问答助手</h1>
-        
-        <div class="card">
-            <label class="upload-area" id="uploadLabel">
-                <input type="file" id="fileInput" accept=".pdf,.docx,.md,.txt">
-                <div>点击或拖拽上传文档</div>
-                <div style="font-size:12px;color:#a0aec0;margin-top:8px;">支持 PDF / Word / Markdown / TXT</div>
-            </label>
-            <div class="status" id="uploadStatus"></div>
-        </div>
-        
-        <div class="card">
-            <div class="chat-box" id="chatBox">
-                <div class="message bot">你好！请先上传文档，然后就可以向我提问了。</div>
-            </div>
-            <div class="input-area">
-                <input type="text" id="questionInput" placeholder="输入你的问题..." disabled>
-                <button id="sendBtn" disabled>发送</button>
-            </div>
-        </div>
-    </div>
-
-    <script>
-        const fileInput = document.getElementById('fileInput');
-        const uploadStatus = document.getElementById('uploadStatus');
-        const questionInput = document.getElementById('questionInput');
-        const sendBtn = document.getElementById('sendBtn');
-        const chatBox = document.getElementById('chatBox');
-
-        fileInput.addEventListener('change', async (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-            
-            uploadStatus.textContent = '正在处理文档...';
-            uploadStatus.className = 'status';
-            
-            const formData = new FormData();
-            formData.append('file', file);
-            
-            try {
-                const res = await fetch('/upload', { method: 'POST', body: formData });
-                const data = await res.json();
-                if (res.ok) {
-                    uploadStatus.textContent = data.message;
-                    uploadStatus.className = 'status success';
-                    questionInput.disabled = false;
-                    sendBtn.disabled = false;
-                    questionInput.focus();
-                } else {
-                    uploadStatus.textContent = data.error || '上传失败';
-                    uploadStatus.className = 'status error';
-                }
-            } catch (err) {
-                uploadStatus.textContent = '上传失败：' + err.message;
-                uploadStatus.className = 'status error';
-            }
-        });
-
-        async function sendQuestion() {
-            const question = questionInput.value.trim();
-            if (!question) return;
-            
-            // 添加用户消息
-            const userMsg = document.createElement('div');
-            userMsg.className = 'message user';
-            userMsg.textContent = question;
-            chatBox.appendChild(userMsg);
-            
-            questionInput.value = '';
-            sendBtn.disabled = true;
-            
-            // 添加加载中消息
-            const loadingMsg = document.createElement('div');
-            loadingMsg.className = 'message bot';
-            loadingMsg.textContent = '正在思考...';
-            chatBox.appendChild(loadingMsg);
-            chatBox.scrollTop = chatBox.scrollHeight;
-            
-            try {
-                const res = await fetch('/ask', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ question })
-                });
-                const data = await res.json();
-                
-                loadingMsg.textContent = data.answer || data.error;
-                
-                if (data.sources && data.sources.length > 0) {
-                    const sourcesDiv = document.createElement('div');
-                    sourcesDiv.className = 'sources';
-                    sourcesDiv.innerHTML = `<details><summary>参考来源（${data.sources.length}段）</summary>${data.sources.map((s,i) => `<div style="margin-top:4px;">[${i+1}] ${s}</div>`).join('')}</details>`;
-                    loadingMsg.appendChild(sourcesDiv);
-                }
-            } catch (err) {
-                loadingMsg.textContent = '出错了：' + err.message;
-            }
-            
-            sendBtn.disabled = false;
-            chatBox.scrollTop = chatBox.scrollHeight;
-        }
-
-        sendBtn.addEventListener('click', sendQuestion);
-        questionInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') sendQuestion();
-        });
-    </script>
+<div class="app">
+  <aside class="side">
+    <div class="brand">Doc<span>Mind</span></div>
+    <label class="upload"><input id="files" type="file" multiple accept=".pdf,.docx,.md,.txt"><b>＋ 添加文档</b><div class="hint">PDF / DOCX / MD / TXT，最多 20 MB</div></label>
+    <div id="status" class="status"></div>
+    <div class="section-title">知识库文档</div><div id="docs" class="docs"></div>
+  </aside>
+  <main class="main">
+    <header class="topbar"><h1>知识库问答</h1><button id="clear" class="secondary">清空会话</button></header>
+    <section id="chat" class="chat"><div id="empty" class="empty"><strong>从文档中获得可靠答案</strong>上传资料后提问，回答会标注原文位置和相关度。</div></section>
+    <form id="form" class="composer"><input id="question" maxlength="2000" autocomplete="off" placeholder="询问知识库中的内容…"><button id="send" class="send" title="发送" aria-label="发送">↑</button></form>
+  </main>
+</div>
+<script>
+const $=id=>document.getElementById(id), state={history:[],documents:[]};
+const escapeHtml=value=>String(value).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+async function api(url,options={}){const res=await fetch(url,options);if(res.status===204)return null;const data=await res.json();if(!res.ok)throw new Error(data.error||'请求失败');return data}
+function renderDocs(){ $('docs').innerHTML=state.documents.length?state.documents.map(d=>`<div class="doc"><div><div class="doc-name" title="${escapeHtml(d.name)}">${escapeHtml(d.name)}</div><div class="doc-meta">${d.chunks} 个片段</div></div><button class="delete" data-id="${d.id}" title="删除文档">×</button></div>`).join(''):'<div class="hint">暂无文档</div>'; }
+async function refresh(){const data=await api('/api/documents');state.documents=data.documents;renderDocs()}
+function addMessage(role,content,sources=[]){$('empty')?.remove();const el=document.createElement('article');el.className=`msg ${role==='user'?'user':'bot'}`;el.textContent=content;if(sources.length){const box=document.createElement('div');box.className='sources';box.innerHTML='<b>回答依据</b>'+sources.map(s=>`<div class="source"><div class="source-head"><span>[${s.index}] ${escapeHtml(s.filename)} · 第 ${s.page||'-'} 页</span><span>相关度 ${Math.round(s.score*100)}%</span></div><div class="excerpt">${escapeHtml(s.excerpt)}</div></div>`).join('');el.appendChild(box)}$('chat').appendChild(el);$('chat').scrollTop=$('chat').scrollHeight;return el}
+$('files').addEventListener('change',async e=>{if(!e.target.files.length)return;const form=new FormData();[...e.target.files].forEach(file=>form.append('files',file));$('status').textContent='正在解析并建立索引…';try{const data=await api('/api/documents',{method:'POST',body:form});$('status').textContent=data.message;await refresh()}catch(error){$('status').textContent=error.message}finally{e.target.value=''}});
+$('docs').addEventListener('click',async e=>{const id=e.target.dataset.id;if(!id||!confirm('删除该文档及其全部索引？'))return;await api(`/api/documents/${id}`,{method:'DELETE'});await refresh()});
+$('form').addEventListener('submit',async e=>{e.preventDefault();const question=$('question').value.trim();if(!question)return;addMessage('user',question);$('question').value='';$('send').disabled=true;const loading=addMessage('assistant','正在检索文档…');try{const data=await api('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question,history:state.history})});loading.remove();addMessage('assistant',data.answer,data.sources);state.history.push({role:'user',content:question},{role:'assistant',content:data.answer})}catch(error){loading.textContent=error.message}finally{$('send').disabled=false;$('question').focus()}});
+$('clear').addEventListener('click',()=>{state.history=[];$('chat').innerHTML='<div id="empty" class="empty"><strong>会话已清空</strong>开始一个新的文档问题。</div>'});refresh().catch(error=>$('status').textContent=error.message);
+</script>
 </body>
 </html>

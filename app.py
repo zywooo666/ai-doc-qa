@@ -1,151 +1,147 @@
+import logging
 import os
-import shutil
-from flask import Flask, render_template, request, jsonify
-from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, TextLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import Chroma
-from langchain_core.embeddings import Embeddings
-from zhipuai import ZhipuAI
+import uuid
+from pathlib import Path
 
-app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = 'uploads'
-app.config['CHROMA_FOLDER'] = 'chroma_db'
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+from dotenv import load_dotenv
+from flask import Flask, jsonify, render_template, request
+from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
+from werkzeug.utils import secure_filename
 
-# ====== 配置区：把你的API密钥填在这里 ======
-ZHIPU_API_KEY = "你的智谱API密钥填这里"
-# ===========================================
+from rag_service import SUPPORTED_EXTENSIONS, RAGService
 
-client = ZhipuAI(api_key=ZHIPU_API_KEY)
+load_dotenv()
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 
-# 智谱 embedding 封装
-class ZhipuEmbeddings(Embeddings):
-    def __init__(self, api_key):
-        self.client = ZhipuAI(api_key=api_key)
+def create_app(config=None, rag_service=None):
+    app = Flask(__name__)
+    app.config.update(
+        UPLOAD_FOLDER=os.getenv("UPLOAD_FOLDER", "data/uploads"),
+        CHROMA_FOLDER=os.getenv("CHROMA_FOLDER", "data/chroma"),
+        MAX_CONTENT_LENGTH=int(os.getenv("MAX_UPLOAD_MB", "20")) * 1024 * 1024,
+        TOP_K=int(os.getenv("TOP_K", "4")),
+        MAX_HISTORY_TURNS=int(os.getenv("MAX_HISTORY_TURNS", "6")),
+    )
+    if config:
+        app.config.update(config)
+    upload_dir = Path(app.config["UPLOAD_FOLDER"])
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    service = rag_service or RAGService(
+        app.config["CHROMA_FOLDER"],
+        os.getenv("ZHIPU_API_KEY", ""),
+        app.config["TOP_K"],
+        app.config["MAX_HISTORY_TURNS"],
+    )
+    app.extensions["rag_service"] = service
 
-    def embed_documents(self, texts):
-        response = self.client.embeddings.create(
-            model="embedding-2",
-            input=texts
-        )
-        return [item.embedding for item in response.data]
+    @app.get("/")
+    def index():
+        return render_template("index.html")
 
-    def embed_query(self, text):
-        response = self.client.embeddings.create(
-            model="embedding-2",
-            input=text
-        )
-        return response.data[0].embedding
+    @app.get("/favicon.ico")
+    def favicon():
+        return "", 204
 
-
-embeddings = ZhipuEmbeddings(api_key=ZHIPU_API_KEY)
-vector_store = None
-
-
-@app.route('/')
-def index():
-    return render_template('index.html')
-
-
-@app.route('/upload', methods=['POST'])
-def upload():
-    global vector_store
-    try:
-        if 'file' not in request.files:
-            return jsonify({'error': '没有选择文件'}), 400
-
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({'error': '文件名为空'}), 400
-
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
-        file.save(filepath)
-
-        ext = os.path.splitext(file.filename)[1].lower()
-        if ext == '.pdf':
-            loader = PyPDFLoader(filepath)
-        elif ext == '.docx':
-            loader = Docx2txtLoader(filepath)
-        elif ext in ['.md', '.txt']:
-            loader = TextLoader(filepath, encoding='utf-8')
-        else:
-            return jsonify({'error': '不支持的文件格式，请上传PDF/Word/Markdown/TXT'}), 400
-
-        documents = loader.load()
-        if not documents:
-            return jsonify({'error': '文档内容为空，请检查文件'}), 400
-
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=500,
-            chunk_overlap=50,
-            separators=["\n\n", "\n", "。", "！", "？", ".", " "]
-        )
-        chunks = text_splitter.split_documents(documents)
-
-        # 每次上传清空旧的向量数据库
-        if os.path.exists(app.config['CHROMA_FOLDER']):
-            shutil.rmtree(app.config['CHROMA_FOLDER'])
-
-        vector_store = Chroma.from_documents(
-            documents=chunks,
-            embedding=embeddings,
-            persist_directory=app.config['CHROMA_FOLDER']
+    @app.get("/api/health")
+    def health():
+        return jsonify(
+            status="ok", ready=service.ready, documents=service.list_documents()
         )
 
-        return jsonify({
-            'message': f'文档上传成功！共切分为 {len(chunks)} 个文本块，可以开始提问了。'
-        })
+    @app.get("/api/documents")
+    def documents():
+        return jsonify(documents=service.list_documents())
 
-    except Exception as e:
-        return jsonify({'error': f'上传失败：{str(e)}'}), 500
+    @app.post("/api/documents")
+    def upload_documents():
+        files = request.files.getlist("files")
+        if not files or all(not item.filename for item in files):
+            return jsonify(error="Select at least one document."), 400
+        uploaded = []
+        for item in files:
+            original_name = item.filename or ""
+            extension = Path(original_name).suffix.lower()
+            if extension not in SUPPORTED_EXTENSIONS:
+                return jsonify(error=f"Unsupported file: {original_name}"), 415
+            document_id = uuid.uuid4().hex
+            safe_name = secure_filename(original_name) or f"document{extension}"
+            path = upload_dir / f"{document_id}_{safe_name}"
+            item.save(path)
+            try:
+                uploaded.append(service.ingest(path, original_name, document_id))
+            except ValueError as error:
+                path.unlink(missing_ok=True)
+                logger.info("Document rejected: %s: %s", original_name, error)
+                return jsonify(
+                    error=(
+                        f"Cannot extract text from {original_name}. "
+                        "The file may be empty, encrypted, damaged, or a scanned image."
+                    )
+                ), 422
+            except UnicodeError:
+                path.unlink(missing_ok=True)
+                logger.info("Document encoding is unsupported: %s", original_name)
+                return jsonify(
+                    error=f"Cannot read {original_name}. Save the text file as UTF-8 and retry."
+                ), 422
+            except Exception as error:
+                path.unlink(missing_ok=True)
+                logger.exception("Document processing failed: %s", original_name)
+                error_name = type(error).__name__
+                return jsonify(
+                    error=f"Failed to process {original_name} ({error_name}). Check the server terminal for details."
+                ), 502
+        return jsonify(
+            message=f"Indexed {len(uploaded)} document(s).", documents=uploaded
+        ), 201
+
+    @app.delete("/api/documents/<document_id>")
+    def delete_document(document_id):
+        if not service.delete_document(document_id):
+            return jsonify(error="Document not found."), 404
+        for path in upload_dir.glob(f"{document_id}_*"):
+            path.unlink(missing_ok=True)
+        return "", 204
+
+    @app.post("/api/chat")
+    def chat():
+        payload = request.get_json(silent=True) or {}
+        question = str(payload.get("question", "")).strip()
+        history = payload.get("history", [])
+        if not question or len(question) > 2000:
+            return jsonify(error="Question must contain 1-2000 characters."), 400
+        if not isinstance(history, list):
+            return jsonify(error="History must be an array."), 400
+        try:
+            return jsonify(service.answer(question, history))
+        except ValueError as error:
+            return jsonify(error=str(error)), 400
+
+    @app.errorhandler(RequestEntityTooLarge)
+    def too_large(_error):
+        size = app.config["MAX_CONTENT_LENGTH"] // 1024 // 1024
+        return jsonify(error=f"Uploads may not exceed {size} MB."), 413
+
+    @app.errorhandler(Exception)
+    def unexpected_error(error):
+        if isinstance(error, HTTPException):
+            return error
+        logger.exception("Unhandled request error")
+        if app.config.get("TESTING"):
+            raise error
+        return jsonify(error="Service temporarily unavailable."), 500
+
+    return app
 
 
-@app.route('/ask', methods=['POST'])
-def ask():
-    global vector_store
-    try:
-        if vector_store is None:
-            return jsonify({'error': '请先上传文档'}), 400
-
-        question = request.json.get('question', '')
-        if not question:
-            return jsonify({'error': '问题不能为空'}), 400
-
-        # 直接用Chroma检索，不用LangChain的retriever，更稳定
-        docs = vector_store.similarity_search(question, k=3)
-
-        if not docs:
-            return jsonify({'error': '未检索到相关内容，请换个问题试试'}), 400
-
-        context = "\n\n".join([doc.page_content for doc in docs])
-
-        prompt = f"""请根据以下文档内容回答用户的问题。如果文档中没有相关信息，请直接说"文档中未找到相关信息"，不要编造。
-
-文档内容：
-{context}
-
-用户问题：{question}
-
-请用中文回答："""
-
-        response = client.chat.completions.create(
-            model="glm-4-flash",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3,
-            max_tokens=1000
-        )
-
-        answer = response.choices[0].message.content
-
-        return jsonify({
-            'answer': answer,
-            'sources': [doc.page_content[:100] + "..." for doc in docs]
-        })
-
-    except Exception as e:
-        return jsonify({'error': f'提问失败：{str(e)}'}), 500
-
-
-if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+if __name__ == "__main__":
+    create_app().run(
+        host="127.0.0.1",
+        port=int(os.getenv("PORT", "5000")),
+        debug=os.getenv("FLASK_DEBUG") == "1",
+    )
